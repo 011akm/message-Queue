@@ -5,7 +5,7 @@ const redis = new Redis({
 });
 
 const STREAM_KEY = 'jobs:stream';
-let lastId=$;
+let lastId='$';
 
 function processJob(id, fields){
     const data = {};
