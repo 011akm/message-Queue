@@ -27,7 +27,7 @@ async function createGroupIfNotExists(){
 
 async function processJob(id, data){
     console.log(`[${CONSUMER_NAME}] Processing job ${id}:`,data);
-    if(Math.random() < 0.99){
+    if(Math.random() < 0.3){
         throw new Error(`Simulated failure for job ${id}`);
     }
 
