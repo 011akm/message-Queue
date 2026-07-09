@@ -83,7 +83,7 @@ async function recoverPendingMessage(){
         
         if(claimed.length > 0){
             const [, fields]= claimed[0];
-            const data = parsefileds(fields);
+            const data = parseFields(fields);
 
             if(data.retries >= MAX_RETRIES){
                 await sendToDLQ(id,data,'max retries exceeded during recovery');
