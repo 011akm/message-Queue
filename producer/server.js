@@ -22,6 +22,7 @@ app.post("/jobs" , async(req,res) =>{
     try{
         const messageId = await redis.xadd(
             STREAM_KEY,
+            'MAXLEN','~','1000',
             '*',
             'type', type,
             'payload', JSON.stringify(payload || {}),
