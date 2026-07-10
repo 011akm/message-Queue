@@ -1,4 +1,7 @@
 const Redis = require('ioredis');
+const connectMongo = require('../db/mongo.js');
+const JobArchive = require('../models/jobArchive.js')
+
 const redis = new Redis({
     host: process.env.REDIS_HOST || 'localhost',
     port: process.env.REDIS_PORT || 6379,
@@ -9,6 +12,30 @@ const STREAM_KEY = 'jobs:stream';
 const GROUP_NAME = 'workers';
 const CONSUMER_NAME = process.env.CONSUMER_NAME || 'consumer-1';
 const MAX_RETRIES = 3;
+const IDLE_TIMEOUT_MS = 30000;
+
+async function archiveJob(id, data, status, reason = null){
+
+    try{
+        await JobArchive.create({
+            messageId: id,
+            type: data.type,
+            payload: data.payload,
+            status,
+            retries: data.retries,
+            worker: CONSUMER_NAME,
+            reason,
+            createdAt: data.createdAt,
+        });
+
+        console.log(`[${CONSUMER_NAME}] Job ${id} archived as '${status}'`);
+    } catch (err){
+        if(err.code === 11000){
+            return;
+        }
+        console.error(`[${CONSUMER_NAME}] Archive failed for ${id}:`, err.message);
+    }
+}
 
 async function createGroupIfNotExists(){
 
@@ -87,6 +114,7 @@ async function recoverPendingMessage(){
 
             if(data.retries >= MAX_RETRIES){
                 await sendToDLQ(id,data,'max retries exceeded during recovery');
+                await archiveJob(id, data, 'failed', 'max retries exceeded during recovery');
                 await redis.xack(STREAM_KEY, GROUP_NAME, id);
             }else{
                 console.log(`[${CONSUMER_NAME}] Recovering message ${id}, retry #${data.retries + 1}`);
@@ -101,12 +129,14 @@ async function handleMessage(id, fields){
 
     try{
         await processJob(id, data);
+        await archiveJob(id, data, 'completed'); 
         await redis.xack(STREAM_KEY, GROUP_NAME, id);
     } catch(err){
         console.error(`[${CONSUMER_NAME}] job ${id} failed - ${err.message}`);
 
         if(data.retries + 1 >= MAX_RETRIES){
             await sendToDLQ(id, data, err.message);
+            await archiveJob(id, data, 'failed', err.message);
             await redis.xack(STREAM_KEY, GROUP_NAME, id);
         }else{
             await redis.xadd(
@@ -123,9 +153,44 @@ async function handleMessage(id, fields){
     }
 }
 
+async function claimAbandonedJobs(){
+
+    try{
+        const pending = await redis.xpending(
+          STREAM_KEY,
+          GROUP_NAME,
+          '-','+',
+          10
+        )
+
+        for(const [id, consumer, idleMs] of pending){
+            if(idleMs > IDLE_TIMEOUT_MS && consumer !== CONSUMER_NAME){
+                const claimed = await redis.xclaim(
+                    STREAM_KEY, 
+                    GROUP_NAME, 
+                    CONSUMER_NAME,
+                    IDLE_TIMEOUT_MS,
+                    id
+                );
+
+                if(claimed.length > 0){
+                    console.log(`[${CONSUMER_NAME}] Claimed abandonde job ${id} from dead worker ${consumer}`);
+                    const[, fields] = claimed[0];
+                    await handleMessage(id,fields);
+                }
+            }
+        }
+    } catch(err){
+        console.error(`[${CONSUMER_NAME}] Idle recovery error:`, err.message);
+    }
+}
+
 async function consumeLoop(){
+    await connectMongo();
     await createGroupIfNotExists();
     await recoverPendingMessage();
+    
+    setInterval(claimAbandonedJobs, IDLE_TIMEOUT_MS);
 
     console.log(`[${CONSUMER_NAME}] Listening for jobs....`);
     
