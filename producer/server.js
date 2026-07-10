@@ -10,6 +10,7 @@ const redis = new Redis({
 })
 
 const STREAM_KEY = 'jobs:stream';
+const GROUP_NAME = 'workers';
 
 app.post("/jobs" , async(req,res) =>{
     const {type,payload} =req.body;
@@ -54,6 +55,45 @@ app.get('/jobs/stream-info', async(req,res) =>{
             error : 'failed to fetch stream info'
         });
     }
+});
+
+app.get('/metrics', async (req, res) => {
+  try {
+    
+    const queueDepth = await redis.xlen(STREAM_KEY);
+
+    const dlqDepth = await redis.xlen('jobs:dlq');
+
+    const pendingInfo = await redis.xpending(STREAM_KEY, GROUP_NAME, '-', '+', 100);
+    const pendingCount = pendingInfo.length;
+
+    const workerStats = {};
+    for (const [id, consumer] of pendingInfo) {
+      workerStats[consumer] = (workerStats[consumer] || 0) + 1;
+    }
+
+    const groupInfo = await redis.xinfo('GROUPS', STREAM_KEY);
+    const group = groupInfo.find((g, i) => groupInfo[i - 1] === GROUP_NAME || g === GROUP_NAME);
+
+    res.json({
+      timestamp: new Date().toISOString(),
+      queue: {
+        depth: queueDepth,
+        pending: pendingCount,
+      },
+      dlq: {
+        depth: dlqDepth,
+      },
+      workers: workerStats,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+app.get('/dashboard', (req, res) => {
+  res.sendFile(__dirname + '/dashboard.html');
 });
 
 const PORT = process.env.PRODUCER_PORT || 3000;
