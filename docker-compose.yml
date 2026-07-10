@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+  
+  mongodb:
+    image: mongo:6-jammy
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      - MONGO_INITDB_DATABASE=messagequeue
+
+  producer:
+    build:
+      context: .
+      dockerfile: Dockerfile.producer
+    ports:
+      - "3000:3000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - PRODUCER_PORT=3000
+      - MONGO_URI=mongodb://mongodb:27017/messagequeue
+    depends_on:
+      - redis
+      - mongodb
+
+  worker-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CONSUMER_NAME=worker-1
+      - MONGO_URI=mongodb://mongodb:27017/messagequeue
+    depends_on:
+      - redis
+      - mongodb
+
+  worker-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CONSUMER_NAME=worker-2
+      - MONGO_URI=mongodb://mongodb:27017/messagequeue
+    depends_on:
+      - redis
+      - mongodb
+
+  worker-3:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CONSUMER_NAME=worker-3
+      - MONGO_URI=mongodb://mongodb:27017/messagequeue
+    depends_on:
+      - redis
+      - mongodb
+
+volumes:
+  redis-data:
+  mongo-data:
