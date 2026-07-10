@@ -10,8 +10,10 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "autocannon": "^8.0.0",
     "express": "^5.2.1",
     "ioredis": "^5.11.1",
+    "mongoose": "^9.7.4",
     "nodemon": "^3.1.14"
   }
 }
